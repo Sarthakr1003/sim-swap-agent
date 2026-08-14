@@ -64,13 +64,26 @@ def calculate_risk_score(event: AccountEvent):
     return {"score": score, "reasons": reasons}
 
 
-def trigger_verification(user_id: str, method: str):
+def trigger_verification(user_id: str, method: str, email: str = None):
     """
-    Tool 3: Simulates sending a step-up verification challenge.
-    In a real system this would send an actual OTP or identity check.
+    Tool 3: Sends a real step-up verification challenge via email OTP.
     """
+    from otp_service import generate_otp, send_otp_email
+
+    otp = generate_otp()
+
+    if email:
+        success = send_otp_email(email, otp, user_id)
+        if success:
+            return {
+                "status": "otp_sent",
+                "user_id": user_id,
+                "method": method,
+                "otp": otp
+            }
+
     print(f"[VERIFICATION TRIGGERED] User: {user_id} | Method: {method}")
-    return {"status": "verification_sent", "user_id": user_id, "method": method}
+    return {"status": "verification_sent", "user_id": user_id, "method": method, "otp": otp}
 
 
 def log_event(event: AccountEvent, decision: dict):
