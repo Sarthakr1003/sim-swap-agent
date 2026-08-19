@@ -58,3 +58,21 @@ SIM-Swap Fraud Detection System
 def verify_otp(entered_otp: str, real_otp: str):
     """Checks if the entered OTP matches the real one."""
     return entered_otp.strip() == real_otp
+
+
+def get_final_decision(otp_verified: bool, original_score: int):
+    """
+    Returns the FINAL decision after OTP verification attempt.
+    Verified → ALLOW (real user confirmed)
+    Failed → BLOCK (attacker can't verify)
+    """
+    if otp_verified:
+        return {
+            "action": "ALLOW",
+            "reason": "OTP verified — real user confirmed. SIM change approved."
+        }
+    else:
+        return {
+            "action": "BLOCK",
+            "reason": f"OTP verification failed. Risk score was {original_score}/100. SIM change blocked — possible fraud."
+        }

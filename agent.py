@@ -66,9 +66,12 @@ Keep your reasoning brief - 2 sentences maximum. Only state facts that came from
 def run_fraud_agent(event: AccountEvent, debug: bool = True):
     """
     The core agentic loop. The model decides which tools to call and when.
-    The FINAL decision is grounded in the real calculate_risk_score result
-    we captured ourselves - not the model's possibly-hallucinated text -
-    so the system stays genuinely agentic but the outcome stays reliable.
+    Final decision is grounded in real tool output — never model text.
+
+    IMPORTANT: Score 70+ no longer instantly BLOCKS.
+    All suspicious events get CHALLENGE first.
+    BLOCK only happens if OTP verification fails (handled by frontend).
+    This prevents false positives on legitimate users traveling abroad etc.
     """
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -77,7 +80,7 @@ def run_fraud_agent(event: AccountEvent, debug: bool = True):
 
     current_event = event
     max_turns = 6
-    real_risk_result = None       # we will capture the REAL score here
+    real_risk_result = None
     verification_triggered = False
     called_tools = set()
 
@@ -112,7 +115,7 @@ def run_fraud_agent(event: AccountEvent, debug: bool = True):
                 called_tools.add(fn_name)
             elif fn_name == "calculate_risk_score":
                 result = calculate_risk_score(current_event)
-                real_risk_result = result          # <-- capture the REAL score
+                real_risk_result = result
                 called_tools.add(fn_name)
             elif fn_name == "trigger_verification":
                 result = trigger_verification(args.get("user_id", current_event.user_id), args.get("method", "otp"))
@@ -129,19 +132,20 @@ def run_fraud_agent(event: AccountEvent, debug: bool = True):
                 "content": json.dumps(result)
             })
 
-    # ---- GROUND THE FINAL DECISION IN REAL DATA, not the model's free text ----
+    # ── GROUND THE FINAL DECISION IN REAL DATA ────────────────────────
     if real_risk_result is None:
-        # Model never actually called the risk scorer - calculate it ourselves as a safety net
         real_risk_result = calculate_risk_score(current_event)
         if debug:
-            print(">>> Model never called calculate_risk_score. Computing it directly as a fallback.")
+            print(">>> Model never called calculate_risk_score. Computing directly as fallback.")
 
     score = real_risk_result["score"]
     reasons = real_risk_result["reasons"]
 
-    if score >= 70:
-        action = "BLOCK"
-    elif score >= 40:
+    # Score 0-39 → ALLOW
+    # Score 40+ → CHALLENGE (OTP sent to user)
+    # BLOCK only happens if OTP verification fails (handled by frontend/simulator)
+    # This prevents false positives — real users can always verify themselves
+    if score >= 40:
         action = "CHALLENGE"
     else:
         action = "ALLOW"

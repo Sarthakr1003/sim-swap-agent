@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from models import AccountEvent, FraudDecision
 from agent import run_fraud_agent
 from tools import log_event, check_account_history, _load_log
-from otp_service import generate_otp, send_otp_email
+from otp_service import generate_otp, send_otp_email, get_final_decision
 
 app = FastAPI(title="SIM-Swap Fraud Detection Agent")
 
@@ -63,7 +63,7 @@ def get_stats():
     return stats
 
 
-# ── SEND OTP (called by web UI when CHALLENGE triggered) ───────────────
+# ── SEND OTP ──────────────────────────────────────────────────────────
 class OTPRequest(BaseModel):
     email: str
     user_id: str
@@ -75,3 +75,22 @@ def send_otp(req: OTPRequest):
     if success:
         return {"status": "sent", "otp": otp}
     raise HTTPException(status_code=500, detail="Failed to send OTP email")
+
+
+# ── VERIFY OTP — FINAL DECISION ────────────────────────────────────────
+class OTPVerifyRequest(BaseModel):
+    entered_otp: str
+    real_otp: str
+    risk_score: int
+    user_id: str
+
+@app.post("/verify-otp")
+def verify_otp_endpoint(req: OTPVerifyRequest):
+    """
+    Final decision after OTP attempt.
+    Correct OTP → ALLOW (real user confirmed)
+    Wrong OTP → BLOCK (attacker caught)
+    """
+    verified = req.entered_otp.strip() == req.real_otp.strip()
+    result = get_final_decision(verified, req.risk_score)
+    return result
