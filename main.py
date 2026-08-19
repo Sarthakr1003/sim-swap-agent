@@ -1,24 +1,30 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 from models import AccountEvent, FraudDecision
 from agent import run_fraud_agent
 from tools import log_event, check_account_history, _load_log
+from otp_service import generate_otp, send_otp_email
 
 app = FastAPI(title="SIM-Swap Fraud Detection Agent")
 
 
+# ── SERVE WEB UI ──────────────────────────────────────────────────────
+@app.get("/", response_class=HTMLResponse)
+def home():
+    with open("templates/index.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+# ── HEALTH CHECK ──────────────────────────────────────────────────────
 @app.get("/health")
 def health_check():
-    """Simple check to confirm the API is running."""
     return {"status": "ok"}
 
 
+# ── MAIN FRAUD DETECTION ENDPOINT ─────────────────────────────────────
 @app.post("/event", response_model=FraudDecision)
 def receive_event(event: AccountEvent):
-    """
-    Main endpoint: receives an account change event,
-    runs it through the fraud detection agent, logs the result,
-    and returns the final decision.
-    """
     try:
         decision = run_fraud_agent(event, debug=False)
         log_event(event, decision)
@@ -31,16 +37,23 @@ def receive_event(event: AccountEvent):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── GET ALL EVENTS (must be before /{user_id} to avoid conflict) ───────
+@app.get("/events/all")
+def get_all_events():
+    log = _load_log()
+    return {"events": log}
+
+
+# ── GET USER EVENT HISTORY ─────────────────────────────────────────────
 @app.get("/events/{user_id}")
 def get_user_events(user_id: str):
-    """Returns the logged event history for a given user."""
     history = check_account_history(user_id)
     return {"user_id": user_id, "events": history}
 
 
+# ── STATS ──────────────────────────────────────────────────────────────
 @app.get("/stats")
 def get_stats():
-    """Returns a summary count of all decisions made so far."""
     entries = _load_log()
     stats = {"ALLOW": 0, "CHALLENGE": 0, "BLOCK": 0, "total": len(entries)}
     for entry in entries:
@@ -48,3 +61,17 @@ def get_stats():
         if action in stats:
             stats[action] += 1
     return stats
+
+
+# ── SEND OTP (called by web UI when CHALLENGE triggered) ───────────────
+class OTPRequest(BaseModel):
+    email: str
+    user_id: str
+
+@app.post("/send-otp")
+def send_otp(req: OTPRequest):
+    otp = generate_otp()
+    success = send_otp_email(req.email, otp, req.user_id)
+    if success:
+        return {"status": "sent", "otp": otp}
+    raise HTTPException(status_code=500, detail="Failed to send OTP email")
