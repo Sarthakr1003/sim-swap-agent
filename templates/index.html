@@ -17,12 +17,7 @@
     }
     * { margin:0; padding:0; box-sizing:border-box; transition: background 0.3s, color 0.3s; }
     body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
-    nav {
-      background: var(--card); border-bottom: 2px solid var(--teal);
-      padding: 0 2rem; height: 60px; display: flex; align-items: center;
-      justify-content: space-between; box-shadow: 0 2px 10px var(--shadow);
-      position: sticky; top: 0; z-index: 100;
-    }
+    nav { background: var(--card); border-bottom: 2px solid var(--teal); padding: 0 2rem; height: 60px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 10px var(--shadow); position: sticky; top: 0; z-index: 100; }
     .nav-brand { display: flex; align-items: center; gap: 10px; }
     .nav-brand .dot { width: 10px; height: 10px; background: var(--teal); border-radius: 50%; animation: pulse 2s infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.3); } }
@@ -65,6 +60,7 @@
     .otp-section { display: none; margin-top: 1rem; padding: 1rem; background: var(--card2); border-radius: 8px; border: 1px solid var(--border); }
     .otp-section.show { display: block; }
     .otp-section p { font-size: 0.88rem; color: var(--subtext); margin-bottom: 0.8rem; }
+    .otp-timer { font-size: 0.8rem; color: #F1C40F; font-weight: 600; margin-bottom: 0.5rem; }
     .otp-row { display: flex; gap: 0.5rem; }
     .otp-row input { flex: 1; padding: 10px 14px; background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 8px; color: var(--text); font-size: 1rem; letter-spacing: 4px; text-align: center; outline: none; }
     .otp-btn { padding: 10px 18px; background: var(--blue); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 0.9rem; }
@@ -110,7 +106,8 @@
       <span class="tag">Local LLM</span>
       <span class="tag">FastAPI Backend</span>
       <span class="tag">Real Email OTP</span>
-      <span class="tag">100% Local</span>
+      <span class="tag">SQLite Database</span>
+      <span class="tag">Rate Limiting</span>
     </div>
   </div>
 
@@ -156,7 +153,8 @@
         <div class="result-reason" id="resultReason"></div>
       </div>
       <div class="otp-section" id="otpSection">
-        <p>A verification OTP has been sent to your email. Enter it below to approve the SIM change:</p>
+        <p>A verification OTP has been sent to your email. Enter it below (valid for 5 minutes):</p>
+        <div class="otp-timer" id="otpTimer">Time remaining: 5:00</div>
         <div class="otp-row">
           <input type="text" id="otpInput" placeholder="Enter OTP" maxlength="6" />
           <button class="otp-btn" onclick="verifyOTP()">Verify</button>
@@ -174,19 +172,19 @@
         </div>
         <div style="display:flex; gap:12px; align-items:flex-start;">
           <div style="background:var(--teal);color:#0D1F3C;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;flex-shrink:0;">2</div>
-          <div><strong>Agent Invoked</strong><br/><small style="color:var(--subtext)">Llama 3.1 8B (via Ollama) autonomously decides which tools to call</small></div>
+          <div><strong>Blocked Check</strong><br/><small style="color:var(--subtext)">System checks if this user/phone is already blocked or rate-limited</small></div>
         </div>
         <div style="display:flex; gap:12px; align-items:flex-start;">
           <div style="background:var(--teal);color:#0D1F3C;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;flex-shrink:0;">3</div>
-          <div><strong>Tools Called</strong><br/><small style="color:var(--subtext)">check_account_history() then calculate_risk_score() then trigger_verification()</small></div>
+          <div><strong>Agent Invoked</strong><br/><small style="color:var(--subtext)">Llama 3.1 8B autonomously calls tools and calculates risk score</small></div>
         </div>
         <div style="display:flex; gap:12px; align-items:flex-start;">
           <div style="background:var(--teal);color:#0D1F3C;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;flex-shrink:0;">4</div>
-          <div><strong>Decision Made</strong><br/><small style="color:var(--subtext)">Final verdict based on real tool output - not model text (hallucination mitigation)</small></div>
+          <div><strong>OTP Challenge</strong><br/><small style="color:var(--subtext)">Score 40+ triggers real OTP email. OTP expires in 5 minutes.</small></div>
         </div>
         <div style="display:flex; gap:12px; align-items:flex-start;">
           <div style="background:var(--teal);color:#0D1F3C;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;flex-shrink:0;">5</div>
-          <div><strong>OTP if Challenged</strong><br/><small style="color:var(--subtext)">Real OTP sent to your email. Correct OTP = ALLOW. Wrong OTP = BLOCK.</small></div>
+          <div><strong>Final Decision</strong><br/><small style="color:var(--subtext)">Correct OTP = ALLOW. Wrong/Expired OTP = BLOCK + user added to blocklist.</small></div>
         </div>
       </div>
       <div style="margin-top:1.5rem; padding:1rem; background:var(--card2); border-radius:8px; border-left:3px solid var(--teal);">
@@ -195,16 +193,16 @@
         </div>
       </div>
       <div style="margin-top:1.5rem;">
-        <div style="font-size:0.82rem; font-weight:600; color:var(--subtext); margin-bottom:0.8rem; text-transform:uppercase; letter-spacing:0.5px;">Risk Thresholds</div>
+        <div style="font-size:0.82rem; font-weight:600; color:var(--subtext); margin-bottom:0.8rem; text-transform:uppercase; letter-spacing:0.5px;">Decision Logic</div>
         <div style="display:flex; flex-direction:column; gap:0.5rem;">
           <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:rgba(26,122,74,0.1); border-radius:6px; border:1px solid rgba(46,204,113,0.3);">
-            <span style="font-weight:600; color:#2ECC71;">ALLOW</span><span style="font-size:0.8rem; color:var(--subtext);">Score 0 - 39</span>
+            <span style="font-weight:600; color:#2ECC71;">ALLOW</span><span style="font-size:0.8rem; color:var(--subtext);">Score 0-39 or OTP verified</span>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:rgba(184,134,11,0.1); border-radius:6px; border:1px solid rgba(241,196,15,0.3);">
-            <span style="font-weight:600; color:#F1C40F;">CHALLENGE</span><span style="font-size:0.8rem; color:var(--subtext);">Score 40 - 100 (OTP sent)</span>
+            <span style="font-weight:600; color:#F1C40F;">CHALLENGE</span><span style="font-size:0.8rem; color:var(--subtext);">Score 40+ - OTP sent to email</span>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:rgba(192,57,43,0.1); border-radius:6px; border:1px solid rgba(231,76,60,0.3);">
-            <span style="font-weight:600; color:#E74C3C;">BLOCK</span><span style="font-size:0.8rem; color:var(--subtext);">OTP verification failed</span>
+            <span style="font-weight:600; color:#E74C3C;">BLOCK</span><span style="font-size:0.8rem; color:var(--subtext);">Wrong/expired OTP or 3+ failures</span>
           </div>
         </div>
       </div>
@@ -225,9 +223,12 @@
 
 <script>
   let currentOTP = null;
+  let currentOtpId = null;
   let currentRiskScore = 0;
   let currentUserId = null;
+  let currentPhone = null;
   let isDark = true;
+  let otpTimerInterval = null;
 
   function toggleTheme() {
     isDark = !isDark;
@@ -272,15 +273,15 @@
         container.innerHTML = '<div class="empty-state">No events found.</div>';
         return;
       }
-      const rows = events.slice().reverse().map(e => {
-        const action = e.decision?.action || '-';
-        const score = e.decision?.risk_score ?? '-';
-        const time = e.timestamp ? e.timestamp.split('T').join(' ').substring(0,16) : '-';
+      const rows = events.map(e => {
+        const action = e.action || '-';
+        const score = e.risk_score ?? '-';
+        const time = e.created_at ? e.created_at.substring(0,16) : '-';
         return `<tr>
           <td>${e.user_id || '-'}</td>
           <td>${e.event_type || '-'}</td>
-          <td>${e.metadata?.country || '-'}</td>
-          <td>${e.metadata?.new_carrier || '-'}</td>
+          <td>${e.country || '-'}</td>
+          <td>${e.new_carrier || '-'}</td>
           <td>${time}</td>
           <td>${score}/100</td>
           <td><span class="badge ${action}">${action}</span></td>
@@ -293,6 +294,24 @@
     } catch {
       container.innerHTML = '<div class="empty-state">Could not load history.</div>';
     }
+  }
+
+  function startOtpTimer(seconds) {
+    if (otpTimerInterval) clearInterval(otpTimerInterval);
+    let remaining = seconds;
+    const timerEl = document.getElementById('otpTimer');
+    otpTimerInterval = setInterval(() => {
+      remaining--;
+      const mins = Math.floor(remaining / 60);
+      const secs = remaining % 60;
+      timerEl.textContent = `Time remaining: ${mins}:${secs.toString().padStart(2,'0')}`;
+      if (remaining <= 0) {
+        clearInterval(otpTimerInterval);
+        timerEl.textContent = 'OTP expired!';
+        timerEl.style.color = '#E74C3C';
+        document.querySelector('.otp-btn').disabled = true;
+      }
+    }, 1000);
   }
 
   async function submitEvent() {
@@ -312,7 +331,9 @@
     document.getElementById('resultBox').classList.remove('show', 'ALLOW', 'CHALLENGE', 'BLOCK');
     document.getElementById('otpSection').classList.remove('show');
     document.getElementById('otpResult').className = 'otp-result';
-    currentOTP = null;
+    document.querySelector('.otp-btn').disabled = false;
+    if (otpTimerInterval) clearInterval(otpTimerInterval);
+    currentOTP = null; currentOtpId = null;
 
     try {
       const res = await fetch('/event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(event) });
@@ -324,7 +345,6 @@
       document.getElementById('loading').classList.remove('show');
       const box = document.getElementById('resultBox');
       box.classList.add('show', action);
-
       document.getElementById('resultDecision').textContent = action;
       document.getElementById('resultDecision').className = `result-decision ${action}`;
       document.getElementById('resultScore').textContent = `Risk Score: ${score}/100`;
@@ -333,10 +353,14 @@
       if (action === 'CHALLENGE' && email) {
         currentRiskScore = score;
         currentUserId = userId;
+        currentPhone = phone;
         const otpRes = await fetch('/send-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, user_id: userId }) });
         const otpData = await otpRes.json();
         currentOTP = otpData.otp;
+        currentOtpId = otpData.otp_id;
         document.getElementById('otpSection').classList.add('show');
+        document.getElementById('otpTimer').style.color = '#F1C40F';
+        startOtpTimer(300);
       }
 
       loadStats();
@@ -356,16 +380,26 @@
       const res = await fetch('/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entered_otp: entered, real_otp: currentOTP, risk_score: currentRiskScore, user_id: currentUserId })
+        body: JSON.stringify({
+          otp_id: currentOtpId,
+          entered_otp: entered,
+          risk_score: currentRiskScore,
+          user_id: currentUserId,
+          phone: currentPhone
+        })
       });
       const data = await res.json();
+      if (otpTimerInterval) clearInterval(otpTimerInterval);
       if (data.action === 'ALLOW') {
         resultEl.textContent = 'OTP Verified - SIM change approved!';
         resultEl.className = 'otp-result success';
+        document.querySelector('.otp-btn').disabled = true;
       } else {
-        resultEl.textContent = 'Wrong OTP - SIM change BLOCKED. Possible fraud detected.';
+        resultEl.textContent = 'Wrong or expired OTP - SIM change BLOCKED. User added to blocklist.';
         resultEl.className = 'otp-result fail';
       }
+      loadStats();
+      loadHistory();
     } catch (err) {
       resultEl.textContent = 'Error: ' + err.message;
       resultEl.className = 'otp-result fail';
