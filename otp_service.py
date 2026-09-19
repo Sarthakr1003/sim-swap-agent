@@ -40,18 +40,73 @@ SIM-Swap Fraud Detection System
         """
 
         msg.attach(MIMEText(body, "plain"))
-
         server = smtplib.SMTP("smtp.gmail.com", 587)
         server.starttls()
         server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
         server.sendmail(GMAIL_ADDRESS, to_email, msg.as_string())
         server.quit()
-
         print(f"\n[OTP SENT] Verification email sent to {to_email}")
         return True
 
     except Exception as e:
         print(f"\n[ERROR] Failed to send email: {str(e)}")
+        return False
+
+
+def send_block_alert_email(to_email: str, user_id: str, phone: str, risk_score: int):
+    """
+    Sends an alert email to the real user when their account gets BLOCKED.
+    This warns them that someone tried to swap their SIM and failed verification.
+    """
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = GMAIL_ADDRESS
+        msg["To"] = to_email
+        msg["Subject"] = "SECURITY ALERT: SIM Swap Attempt Blocked on Your Account"
+
+        body = f"""
+SECURITY ALERT
+
+Dear User ({user_id}),
+
+We detected a suspicious SIM swap attempt on your account and have BLOCKED it.
+
+Details:
+- Phone Number: {phone}
+- Risk Score: {risk_score}/100
+- Status: BLOCKED — SIM change was NOT completed
+
+What happened:
+Someone requested a SIM swap for your phone number. Our fraud detection system
+flagged this as suspicious and sent an OTP for verification. The OTP was entered
+incorrectly, so the SIM change was blocked.
+
+What you should do:
+1. Contact your mobile carrier immediately to ensure your SIM is secure
+2. Change your email and banking passwords as a precaution
+3. Enable additional security on your accounts
+4. If you requested this SIM swap yourself, please contact your carrier directly
+
+If you did NOT request a SIM swap, someone may be attempting to steal your identity.
+Please act immediately.
+
+This is an automated alert from your SIM-Swap Fraud Detection System.
+
+Stay safe,
+SIM-Swap Fraud Detection System
+        """
+
+        msg.attach(MIMEText(body, "plain"))
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+        server.sendmail(GMAIL_ADDRESS, to_email, msg.as_string())
+        server.quit()
+        print(f"\n[ALERT SENT] Block alert email sent to {to_email}")
+        return True
+
+    except Exception as e:
+        print(f"\n[ERROR] Failed to send alert email: {str(e)}")
         return False
 
 
@@ -63,8 +118,8 @@ def verify_otp(entered_otp: str, real_otp: str):
 def get_final_decision(otp_verified: bool, original_score: int):
     """
     Returns the FINAL decision after OTP verification attempt.
-    Verified → ALLOW (real user confirmed)
-    Failed → BLOCK (attacker can't verify)
+    Verified -> ALLOW (real user confirmed)
+    Failed -> BLOCK (attacker caught)
     """
     if otp_verified:
         return {
