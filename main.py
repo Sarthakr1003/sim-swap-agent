@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from models import AccountEvent, FraudDecision
 from agent import run_fraud_agent
-from otp_service import generate_otp, send_otp_email, get_final_decision
+from otp_service import generate_otp, send_otp_email, send_block_alert_email, get_final_decision
 from database import (
     init_db, log_event_db, get_user_events_db,
     get_all_events_db, get_stats_db, save_otp_db,
@@ -35,7 +35,6 @@ def receive_event(event: AccountEvent):
         phone = event.metadata.get("phone", "")
         user_id = event.user_id
 
-        # Check if user is already blocked
         if is_user_blocked(user_id, phone):
             return FraudDecision(
                 action="BLOCK",
@@ -43,7 +42,6 @@ def receive_event(event: AccountEvent):
                 reason="This user/phone is permanently blocked due to repeated fraud attempts."
             )
 
-        # Check rate limiting — 3 blocks in 10 minutes = permanent block
         recent_failures = get_recent_failures_db(user_id, minutes=10)
         if recent_failures >= 3:
             block_user_db(user_id, phone, "Repeated OTP failures — possible brute force attack")
@@ -53,10 +51,8 @@ def receive_event(event: AccountEvent):
                 reason="Too many failed verification attempts. Account blocked for security."
             )
 
-        # Run fraud agent
         decision = run_fraud_agent(event, debug=False)
 
-        # Log to database
         log_event_db(
             user_id=user_id,
             phone=phone,
@@ -120,18 +116,13 @@ class OTPVerifyRequest(BaseModel):
     risk_score: int
     user_id: str
     phone: str = ""
+    email: str = ""
 
 @app.post("/verify-otp")
 def verify_otp_endpoint(req: OTPVerifyRequest):
-    """
-    Final decision after OTP attempt.
-    Correct OTP → ALLOW
-    Wrong/Expired OTP → BLOCK
-    """
     verified, message = verify_otp_db(req.otp_id, req.entered_otp)
     result = get_final_decision(verified, req.risk_score)
 
-    # Log the final decision to database
     log_event_db(
         user_id=req.user_id,
         phone=req.phone,
@@ -144,8 +135,32 @@ def verify_otp_endpoint(req: OTPVerifyRequest):
         reason=result["reason"]
     )
 
-    # If blocked — add to blocked users list
     if result["action"] == "BLOCK":
         block_user_db(req.user_id, req.phone, result["reason"])
+        # Send security alert email to warn the real user
+        if req.email:
+            send_block_alert_email(req.email, req.user_id, req.phone, req.risk_score)
 
     return result
+
+
+# ── REGISTER PHONE FOR MONITORING ─────────────────────────────────────
+class RegisterRequest(BaseModel):
+    phone: str
+    email: str
+    user_id: str
+
+@app.post("/register")
+def register_phone(req: RegisterRequest):
+    try:
+        from monitor import register_number, init_monitor_table
+        init_monitor_table()
+        carrier = register_number(req.phone, req.email, req.user_id)
+        return {
+            "status": "registered",
+            "phone": req.phone,
+            "current_carrier": carrier,
+            "message": f"Phone registered. Current carrier: {carrier}. Monitoring active."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
