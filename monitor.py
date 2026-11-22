@@ -150,7 +150,8 @@ def fire_event(phone: str, email: str, user_id: str, old_carrier: str, new_carri
         "metadata": {
             "phone": phone,
             "email": email,
-            "country": "AUTO_DETECTED",
+            # No country: carrier lookup can't tell where the new SIM is being used,
+            # so the foreign-country factor is not applied to monitor events.
             "new_carrier": new_carrier,
             "old_carrier": old_carrier,
             "detection_method": "automatic_carrier_monitoring"
@@ -209,4 +210,10 @@ def run_monitor():
 
 
 if __name__ == "__main__":
-    run_monitor()
+    import sys
+    if "--once" in sys.argv:
+        # Single check cycle, useful for testing and demos
+        init_monitor_table()
+        check_all_numbers()
+    else:
+        run_monitor()

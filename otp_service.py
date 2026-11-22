@@ -1,5 +1,5 @@
 import smtplib
-import random
+import secrets
 import os
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -12,8 +12,8 @@ GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
 
 
 def generate_otp():
-    """Generates a random 6-digit OTP."""
-    return str(random.randint(100000, 999999))
+    """Generates a 6-digit OTP using a cryptographically secure RNG."""
+    return str(secrets.randbelow(900000) + 100000)
 
 
 def send_otp_email(to_email: str, otp: str, user_id: str):
@@ -110,24 +110,19 @@ SIM-Swap Fraud Detection System
         return False
 
 
-def verify_otp(entered_otp: str, real_otp: str):
-    """Checks if the entered OTP matches the real one."""
-    return entered_otp.strip() == real_otp
-
-
-def get_final_decision(otp_verified: bool, original_score: int):
+def get_final_decision(otp_verified: bool, original_score: int, detail: str = ""):
     """
-    Returns the FINAL decision after OTP verification attempt.
+    Returns the FINAL decision after an OTP verification attempt.
     Verified -> ALLOW (real user confirmed)
-    Failed -> BLOCK (attacker caught)
+    Failed / expired / already used -> BLOCK (possible attacker)
     """
     if otp_verified:
         return {
             "action": "ALLOW",
-            "reason": "OTP verified — real user confirmed. SIM change approved."
+            "reason": "OTP verified - real user confirmed. SIM change approved."
         }
-    else:
-        return {
-            "action": "BLOCK",
-            "reason": f"OTP verification failed. Risk score was {original_score}/100. SIM change blocked — possible fraud."
-        }
+    why = f" ({detail})" if detail else ""
+    return {
+        "action": "BLOCK",
+        "reason": f"OTP verification failed{why}. Risk score was {original_score}/100. SIM change blocked - possible fraud."
+    }

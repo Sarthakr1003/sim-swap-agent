@@ -105,7 +105,9 @@ def send_otp(req: OTPRequest):
     success = send_otp_email(req.email, otp, req.user_id)
     if success:
         otp_id = save_otp_db(req.user_id, otp, expires_minutes=5)
-        return {"status": "sent", "otp_id": otp_id, "otp": otp}
+        # Only the OTP id goes back to the client. The code itself is only in
+        # the user's inbox, and SQLite holds just its SHA-256 hash.
+        return {"status": "sent", "otp_id": otp_id, "expires_in_seconds": 300}
     raise HTTPException(status_code=500, detail="Failed to send OTP email")
 
 
@@ -120,8 +122,8 @@ class OTPVerifyRequest(BaseModel):
 
 @app.post("/verify-otp")
 def verify_otp_endpoint(req: OTPVerifyRequest):
-    verified, message = verify_otp_db(req.otp_id, req.entered_otp)
-    result = get_final_decision(verified, req.risk_score)
+    verified, message = verify_otp_db(req.otp_id, req.entered_otp, req.user_id)
+    result = get_final_decision(verified, req.risk_score, message)
 
     log_event_db(
         user_id=req.user_id,

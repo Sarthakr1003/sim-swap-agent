@@ -248,7 +248,6 @@
 </div>
 
 <script>
-  let currentOTP = null;
   let currentEmail = null;
   let currentOtpId = null;
   let currentRiskScore = 0;
@@ -350,7 +349,8 @@
 
     if (!phone || !email || !carrier) { alert('Please fill in all fields.'); return; }
 
-    const userId = `user_${phone.slice(-4)}_${Date.now()}`;
+    // Stable ID per phone number, so account history and rate limiting carry across events
+    const userId = `user_${phone.replace(/\D/g, '')}`;
     const event = { user_id: userId, event_type: "sim_change", timestamp: timeSlot, metadata: { country, new_carrier: carrier, phone, email } };
 
     document.getElementById('submitBtn').disabled = true;
@@ -360,7 +360,7 @@
     document.getElementById('otpResult').className = 'otp-result';
     document.querySelector('.otp-btn').disabled = false;
     if (otpTimerInterval) clearInterval(otpTimerInterval);
-    currentOTP = null; currentOtpId = null;
+    currentOtpId = null;
 
     try {
       const res = await fetch('/event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(event) });
@@ -383,8 +383,8 @@
         currentEmail = email;
         currentPhone = phone;
         const otpRes = await fetch('/send-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, user_id: userId }) });
+        if (!otpRes.ok) throw new Error('Could not send the OTP email. Check the Gmail settings in .env.');
         const otpData = await otpRes.json();
-        currentOTP = otpData.otp;
         currentOtpId = otpData.otp_id;
         document.getElementById('otpSection').classList.add('show');
         document.getElementById('otpTimer').style.color = '#F1C40F';
@@ -446,7 +446,7 @@
 
     resultEl.style.display = 'block';
     resultEl.style.color = 'var(--subtext)';
-    resultEl.textContent = 'Registering and checking current carrier via Twilio...';
+    resultEl.textContent = 'Registering and checking current carrier...';
 
     try {
       const res = await fetch('/register', {
