@@ -1,38 +1,41 @@
-import json
-import os
-from datetime import datetime
+"""
+Deterministic tools the LLM agent can call.
+
+The agent decides WHICH tools to call and in what order, but the numbers it
+reasons about always come from these functions, never from the model itself.
+"""
 from models import AccountEvent
+from database import get_user_events_db
 
-LOG_FILE = "data/events_log.json"
-
-
-def _load_log():
-    """Reads the events log file, returns empty list if it doesn't exist yet."""
-    if not os.path.exists(LOG_FILE):
-        return []
-    with open(LOG_FILE, "r") as f:
-        return json.load(f)
-
-
-def _save_log(log):
-    """Writes the events log back to the file."""
-    with open(LOG_FILE, "w") as f:
-        json.dump(log, f, indent=2, default=str)
+# Rows written by /verify-otp are verification outcomes, not account changes,
+# so they are left out of the history the risk scorer looks at.
+NON_CHANGE_EVENT_TYPES = {"otp_verification"}
 
 
 def check_account_history(user_id: str):
     """
-    Tool 1: Returns recent events for this user.
-    The agent calls this to see what's happened on this account before.
+    Tool 1: Returns previous account-change events for this user from SQLite
+    (newest first). The agent calls this to see what happened on this account
+    before the current event.
     """
-    log = _load_log()
-    history = [entry for entry in log if entry.get("user_id") == user_id]
-    return history
+    rows = get_user_events_db(user_id)
+    return [
+        {
+            "event_type": r["event_type"],
+            "timestamp": r["timestamp"],
+            "country": r["country"],
+            "new_carrier": r["new_carrier"],
+            "risk_score": r["risk_score"],
+            "action": r["action"],
+        }
+        for r in rows
+        if r["event_type"] not in NON_CHANGE_EVENT_TYPES
+    ]
 
 
 def calculate_risk_score(event: AccountEvent):
     """
-    Tool 2: Heuristic risk scorer (0-100).
+    Tool 2: Heuristic risk scorer (0-100), five factors.
     The agent calls this to get a numeric risk estimate for the current event.
     """
     score = 0
@@ -43,14 +46,15 @@ def calculate_risk_score(event: AccountEvent):
         score += 25
         reasons.append("Event occurred at an unusual hour (11PM-5AM)")
 
-    if event.metadata.get("country") and event.metadata.get("country") != "IN":
+    country = event.metadata.get("country")
+    if country and country != "IN":
         score += 25
         reasons.append("Foreign country detected")
 
     history = check_account_history(event.user_id)
     if len(history) >= 2:
         score += 20
-        reasons.append("Multiple account changes detected recently")
+        reasons.append(f"Multiple prior account changes on record ({len(history)})")
 
     if event.metadata.get("new_carrier"):
         score += 15
@@ -64,38 +68,14 @@ def calculate_risk_score(event: AccountEvent):
     return {"score": score, "reasons": reasons}
 
 
-def trigger_verification(user_id: str, method: str, email: str = None):
+def trigger_verification(user_id: str, method: str):
     """
-    Tool 3: Sends a real step-up verification challenge via email OTP.
+    Tool 3: Flags that step-up verification is required for this user.
+
+    The agent only records the request here. The real OTP is generated,
+    hashed into SQLite and emailed by the /send-otp endpoint, which the
+    web UI and CLI simulator call once /event returns CHALLENGE. Keeping
+    OTP generation out of the LLM loop means the model never sees the code.
     """
-    from otp_service import generate_otp, send_otp_email
-
-    otp = generate_otp()
-
-    if email:
-        success = send_otp_email(email, otp, user_id)
-        if success:
-            return {
-                "status": "otp_sent",
-                "user_id": user_id,
-                "method": method,
-                "otp": otp
-            }
-
-    print(f"[VERIFICATION TRIGGERED] User: {user_id} | Method: {method}")
-    return {"status": "verification_sent", "user_id": user_id, "method": method, "otp": otp}
-
-
-def log_event(event: AccountEvent, decision: dict):
-    """
-    Saves the event + final decision to the log file for audit purposes.
-    """
-    log = _load_log()
-    log.append({
-        "user_id": event.user_id,
-        "event_type": event.event_type,
-        "timestamp": event.timestamp.isoformat(),
-        "metadata": event.metadata,
-        "decision": decision
-    })
-    _save_log(log)
+    print(f"[VERIFICATION REQUESTED] User: {user_id} | Method: {method}")
+    return {"status": "verification_required", "user_id": user_id, "method": method}
