@@ -1,7 +1,7 @@
 import ollama
 import json
 from models import AccountEvent
-from tools import calculate_risk_score, check_account_history, trigger_verification, log_event
+from tools import calculate_risk_score, check_account_history, trigger_verification
 
 MODEL = "llama3.1:8b"
 

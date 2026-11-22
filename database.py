@@ -134,25 +134,31 @@ def save_otp_db(user_id: str, otp: str, expires_minutes: int = 5):
     return otp_id
 
 
-def verify_otp_db(otp_id: int, entered_otp: str):
+def verify_otp_db(otp_id: int, entered_otp: str, user_id: str):
     """
-    Verifies OTP against database.
-    Returns True if correct and not expired.
-    Returns False if wrong or expired.
+    Verifies an OTP against the database.
+    Returns (True, msg) if it belongs to user_id, is unused, unexpired and correct.
+    Returns (False, msg) otherwise. Any attempt, right or wrong, uses up the OTP,
+    so a code can't be brute-forced by retrying against the same otp_id.
     """
     import hashlib
+    import hmac
     from datetime import datetime
-    entered_hash = hashlib.sha256(entered_otp.encode()).hexdigest()
+    entered_hash = hashlib.sha256(entered_otp.strip().encode()).hexdigest()
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT * FROM otp_attempts WHERE id = ? AND used = 0
-    """, (otp_id,))
+        SELECT * FROM otp_attempts WHERE id = ? AND user_id = ? AND used = 0
+    """, (otp_id, user_id))
     row = cursor.fetchone()
 
     if not row:
         conn.close()
         return False, "OTP not found or already used"
+
+    # Single use: mark it used before checking, so wrong guesses burn it too
+    cursor.execute("UPDATE otp_attempts SET used = 1 WHERE id = ?", (otp_id,))
+    conn.commit()
 
     # Check expiry
     expires_at = datetime.fromisoformat(row["expires_at"])
@@ -160,13 +166,11 @@ def verify_otp_db(otp_id: int, entered_otp: str):
         conn.close()
         return False, "OTP expired"
 
-    # Check hash
-    if row["otp_hash"] != entered_hash:
+    # Check hash (constant-time comparison)
+    if not hmac.compare_digest(row["otp_hash"], entered_hash):
         conn.close()
         return False, "Wrong OTP"
 
-    # Mark as used
-    cursor.execute("UPDATE otp_attempts SET used = 1 WHERE id = ?", (otp_id,))
     conn.commit()
     conn.close()
     return True, "OTP verified"
